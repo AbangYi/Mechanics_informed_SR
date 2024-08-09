@@ -5,6 +5,12 @@ from os import path
 from get_pareto import Point, ParetoSet
 from RPN_to_pytorch import RPN_to_pytorch
 from RPN_to_eq import RPN_to_eq
+from S_NN_train import NN_train
+from S_NN_eval import NN_eval
+
+#from S_symmetry import *
+#from S_mechanics_symmetry import *
+#from S_separability import *
 from S_NonNN_mechanics_separability import *
 from S_mechanicsSR_MulSeparabilityCheck import *    
 from S_mechanicsSR_AddSeperabilityCheck import *
@@ -24,7 +30,7 @@ from S_add_bf_on_numbers_on_pareto import add_bf_on_numbers_on_pareto
 from dimensionalAnalysis import dimensionalAnalysis
 
 PA = ParetoSet()
-def run_SR(pathdir,filename,BF_try_time=60,BF_ops_file_type="14ops", polyfit_deg=3, PA=PA):
+def run_AI_all(pathdir,filename,BF_try_time=60,BF_ops_file_type="14ops", polyfit_deg=3, PA=PA):
     try:
         os.mkdir("results/")
     except:
@@ -49,28 +55,43 @@ def run_SR(pathdir,filename,BF_try_time=60,BF_ops_file_type="14ops", polyfit_deg
     PA = get_tan(pathdir,"results/mystery_world_tan/",filename,BF_try_time,BF_ops_file_type, PA, polyfit_deg)
 
 #############################################################################################################################  
-    # If less than 2 variables, there is no separability and return results
+    # check if the NN is trained. If it is not, train it on the data.
+    print("Checking for symmetry \n", filename)
     if len(data[0])<3:
-        print("No separability was found & return results")
+        print("Just one variable! && return results")
         idx_min = -1
         pass       
-    # Check separability
-
+    # Check which symmetry/separability is the best
+    
+    # Symmetries
+    #symmetry_minus_result = check_translational_symmetry_minus(pathdir,filename)
+    #symmetry_divide_result = check_translational_symmetry_divide(pathdir,filename)
+    #symmetry_multiply_result = check_translational_symmetry_multiply(pathdir,filename)
+    #symmetry_plus_result = check_translational_symmetry_plus(pathdir,filename)
+    
+    # Separabilities
     else:
         separability_plus_result = check_separability_plus(pathdir,filename)
     # Check here
+
         print('check error here')
         separability_multiply_result = check_separability_mul(pathdir,filename)
+    
+    # Abang : checkpoint here ban symmetry
+#    symmetry_plus_result[0] = (999,) + symmetry_plus_result[0]   Error 'tuple' object does not support item assignment
+    
+    # symmetry_plus_result = [min_er, index_i, index_j] by definition
         idx_min = np.argmin(np.array([separability_plus_result[0], separability_multiply_result[0]]))
-        print ('idx_min', idx_min)      
+        print ('idx_min', idx_min)
+# Abang : original version        idx_min = np.argmin(np.array([symmetry_plus_result[0], symmetry_minus_result[0], symmetry_multiply_result[0], symmetry_divide_result[0], separability_plus_result[0], separability_multiply_result[0]]))
 
     # Apply the best separability and rerun the main function on this new file    
     if idx_min == 0:
         new_pathdir1, new_filename1, new_pathdir2, new_filename2,  = do_separability_plus(pathdir,filename,separability_plus_result[1],separability_plus_result[2])
         PA1_ = ParetoSet()
-        PA1 = run_SR(new_pathdir1,new_filename1,BF_try_time,BF_ops_file_type, polyfit_deg, PA1_)
+        PA1 = run_AI_all(new_pathdir1,new_filename1,BF_try_time,BF_ops_file_type, polyfit_deg, PA1_)
         PA2_ = ParetoSet()
-        PA2 = run_SR(new_pathdir2,new_filename2,BF_try_time,BF_ops_file_type, polyfit_deg, PA2_)
+        PA2 = run_AI_all(new_pathdir2,new_filename2,BF_try_time,BF_ops_file_type, polyfit_deg, PA2_)
         combine_pareto_data = np.loadtxt(pathdir+filename)
         PA = combine_pareto(combine_pareto_data,PA1,PA2,separability_plus_result[1],separability_plus_result[2],PA,"+")
         return PA 
@@ -78,9 +99,9 @@ def run_SR(pathdir,filename,BF_try_time=60,BF_ops_file_type="14ops", polyfit_deg
     elif idx_min == 1:
         new_pathdir1, new_filename1, new_pathdir2, new_filename2,  = do_separability_multiply(pathdir,filename,separability_multiply_result[1],separability_multiply_result[2])
         PA1_ = ParetoSet()
-        PA1 = run_SR(new_pathdir1,new_filename1,BF_try_time,BF_ops_file_type, polyfit_deg, PA1_)
+        PA1 = run_AI_all(new_pathdir1,new_filename1,BF_try_time,BF_ops_file_type, polyfit_deg, PA1_)
         PA2_ = ParetoSet()
-        PA2 = run_SR(new_pathdir2,new_filename2,BF_try_time,BF_ops_file_type, polyfit_deg, PA2_)
+        PA2 = run_AI_all(new_pathdir2,new_filename2,BF_try_time,BF_ops_file_type, polyfit_deg, PA2_)
         combine_pareto_data = np.loadtxt(pathdir+filename)
         PA = combine_pareto(combine_pareto_data,PA1,PA2,separability_multiply_result[1],separability_multiply_result[2],PA,"*")
         return PA 
@@ -88,7 +109,7 @@ def run_SR(pathdir,filename,BF_try_time=60,BF_ops_file_type="14ops", polyfit_deg
         return PA
 
 # this runs snap on the output of aifeynman
-def run_mechanics_SR(pathdir,filename,BF_try_time,BF_ops_file_type, polyfit_deg=3, vars_name=[],test_percentage=20):    
+def run_aifeynman(pathdir,filename,BF_try_time,BF_ops_file_type, polyfit_deg=3, vars_name=[],test_percentage=20):    
     # If the variable names are passed, do the dimensional analysis first
     filename_orig = filename
     try:
@@ -114,7 +135,7 @@ def run_mechanics_SR(pathdir,filename,BF_try_time,BF_ops_file_type, polyfit_deg=
 
     PA = ParetoSet()
     # Run the code on the train data 
-    PA = run_SR(pathdir,filename,BF_try_time,BF_ops_file_type, polyfit_deg, PA=PA)
+    PA = run_AI_all(pathdir,filename,BF_try_time,BF_ops_file_type, polyfit_deg, PA=PA)
     PA_list = PA.get_pareto_points()
 
     # Run bf snap on the resulted equations
