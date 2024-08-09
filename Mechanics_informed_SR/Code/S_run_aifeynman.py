@@ -5,9 +5,10 @@ from os import path
 from get_pareto import Point, ParetoSet
 from RPN_to_pytorch import RPN_to_pytorch
 from RPN_to_eq import RPN_to_eq
-from S_NonNN_mechanics_separability import *
-from S_mechanicsSR_MulSeparabilityCheck import *    
-from S_mechanicsSR_AddSeperabilityCheck import *
+from S_NN_train import NN_train
+from S_NN_eval import NN_eval
+from S_symmetry import *
+from S_separability import *
 from S_change_output import *
 from S_brute_force import brute_force
 from S_combine_pareto import combine_pareto
@@ -24,7 +25,7 @@ from S_add_bf_on_numbers_on_pareto import add_bf_on_numbers_on_pareto
 from dimensionalAnalysis import dimensionalAnalysis
 
 PA = ParetoSet()
-def run_SR(pathdir,filename,BF_try_time=60,BF_ops_file_type="14ops", polyfit_deg=3, PA=PA):
+def run_AI_all(pathdir,filename,BF_try_time=60,BF_ops_file_type="14ops", polyfit_deg=3, NN_epochs=4000, PA=PA):
     try:
         os.mkdir("results/")
     except:
@@ -49,38 +50,85 @@ def run_SR(pathdir,filename,BF_try_time=60,BF_ops_file_type="14ops", polyfit_deg
     PA = get_tan(pathdir,"results/mystery_world_tan/",filename,BF_try_time,BF_ops_file_type, PA, polyfit_deg)
 
 #############################################################################################################################  
-    # If less than 2 variables, there is no separability and return results
+    # check if the NN is trained. If it is not, train it on the data.
+    print("Checking for symmetry \n", filename)
     if len(data[0])<3:
-        print("No separability was found & return results")
-        idx_min = -1
-        pass       
-    # Check separability
-
+        print("Just one variable!")
+        pass
+    elif path.exists("results/NN_trained_models/models/" + filename + ".h5"):# or len(data[0])<3:
+        print("NN already trained \n")
+        print("NN loss: ", NN_eval(pathdir,filename), "\n")
+    elif path.exists("results/NN_trained_models/models/" + filename + "_pretrained.h5"):
+        print("Found pretrained NN \n")
+        NN_train(pathdir,filename,NN_epochs/2,lrs=1e-3,N_red_lr=3,pretrained_path="results/NN_trained_models/models/" + filename + "_pretrained.h5")
+        print("NN loss after training: ", NN_eval(pathdir,filename), "\n")
     else:
-        separability_plus_result = check_separability_plus(pathdir,filename)
-    # Check here
-        print('check error here')
-        separability_multiply_result = check_separability_mul(pathdir,filename)
-        idx_min = np.argmin(np.array([separability_plus_result[0], separability_multiply_result[0]]))
-        print ('idx_min', idx_min)      
+        print("Training a NN on the data... \n")
+        NN_train(pathdir,filename,NN_epochs)
+        print("NN loss: ", NN_eval(pathdir,filename), "\n")
+        
+    # Check which symmetry/separability is the best
+    
+    # Symmetries
+    symmetry_minus_result = check_translational_symmetry_minus(pathdir,filename)
+    symmetry_divide_result = check_translational_symmetry_divide(pathdir,filename)
+    symmetry_multiply_result = check_translational_symmetry_multiply(pathdir,filename)
+    symmetry_plus_result = check_translational_symmetry_plus(pathdir,filename)
+    
+    # Separabilities
+    separability_plus_result = check_separability_plus(pathdir,filename)
+    separability_multiply_result = check_separability_multiply(pathdir,filename)
+    
+    if symmetry_plus_result[0]==-1:
+        idx_min = -1
+    else:
+        idx_min = np.argmin(np.array([symmetry_plus_result[0], symmetry_minus_result[0], symmetry_multiply_result[0], symmetry_divide_result[0], separability_plus_result[0], separability_multiply_result[0]]))
 
-    # Apply the best separability and rerun the main function on this new file    
+    # Apply the best symmetry/separability and rerun the main function on this new file
     if idx_min == 0:
+        new_pathdir, new_filename = do_translational_symmetry_plus(pathdir,filename,symmetry_plus_result[1],symmetry_plus_result[2])
+        PA1_ = ParetoSet()
+        PA1 = run_AI_all(new_pathdir,new_filename,BF_try_time,BF_ops_file_type, polyfit_deg, NN_epochs, PA1_)
+        PA = add_sym_on_pareto(pathdir,filename,PA1,symmetry_plus_result[1],symmetry_plus_result[2],PA,"+")
+        return PA
+    
+    elif idx_min == 1:
+        new_pathdir, new_filename = do_translational_symmetry_minus(pathdir,filename,symmetry_minus_result[1],symmetry_minus_result[2])
+        PA1_ = ParetoSet()
+        PA1 = run_AI_all(new_pathdir,new_filename,BF_try_time,BF_ops_file_type, polyfit_deg, NN_epochs, PA1_)
+        PA = add_sym_on_pareto(pathdir,filename,PA1,symmetry_minus_result[1],symmetry_minus_result[2],PA,"-")
+        return PA
+    
+    elif idx_min == 2:
+        new_pathdir, new_filename = do_translational_symmetry_multiply(pathdir,filename,symmetry_multiply_result[1],symmetry_multiply_result[2])
+        PA1_ = ParetoSet()
+        PA1 = run_AI_all(new_pathdir,new_filename,BF_try_time,BF_ops_file_type, polyfit_deg, NN_epochs, PA1_)
+        PA = add_sym_on_pareto(pathdir,filename,PA1,symmetry_multiply_result[1],symmetry_multiply_result[2],PA,"*")
+        return PA
+    
+    elif idx_min == 3:
+        new_pathdir, new_filename = do_translational_symmetry_divide(pathdir,filename,symmetry_divide_result[1],symmetry_divide_result[2])
+        PA1_ = ParetoSet()
+        PA1 = run_AI_all(new_pathdir,new_filename,BF_try_time,BF_ops_file_type, polyfit_deg, NN_epochs, PA1_)
+        PA = add_sym_on_pareto(pathdir,filename,PA1,symmetry_divide_result[1],symmetry_divide_result[2],PA,"/")
+        return PA
+    
+    elif idx_min == 4:
         new_pathdir1, new_filename1, new_pathdir2, new_filename2,  = do_separability_plus(pathdir,filename,separability_plus_result[1],separability_plus_result[2])
         PA1_ = ParetoSet()
-        PA1 = run_SR(new_pathdir1,new_filename1,BF_try_time,BF_ops_file_type, polyfit_deg, PA1_)
+        PA1 = run_AI_all(new_pathdir1,new_filename1,BF_try_time,BF_ops_file_type, polyfit_deg, NN_epochs, PA1_)
         PA2_ = ParetoSet()
-        PA2 = run_SR(new_pathdir2,new_filename2,BF_try_time,BF_ops_file_type, polyfit_deg, PA2_)
+        PA2 = run_AI_all(new_pathdir2,new_filename2,BF_try_time,BF_ops_file_type, polyfit_deg, NN_epochs, PA2_)
         combine_pareto_data = np.loadtxt(pathdir+filename)
         PA = combine_pareto(combine_pareto_data,PA1,PA2,separability_plus_result[1],separability_plus_result[2],PA,"+")
         return PA 
     
-    elif idx_min == 1:
+    elif idx_min == 5:
         new_pathdir1, new_filename1, new_pathdir2, new_filename2,  = do_separability_multiply(pathdir,filename,separability_multiply_result[1],separability_multiply_result[2])
         PA1_ = ParetoSet()
-        PA1 = run_SR(new_pathdir1,new_filename1,BF_try_time,BF_ops_file_type, polyfit_deg, PA1_)
+        PA1 = run_AI_all(new_pathdir1,new_filename1,BF_try_time,BF_ops_file_type, polyfit_deg, NN_epochs, PA1_)
         PA2_ = ParetoSet()
-        PA2 = run_SR(new_pathdir2,new_filename2,BF_try_time,BF_ops_file_type, polyfit_deg, PA2_)
+        PA2 = run_AI_all(new_pathdir2,new_filename2,BF_try_time,BF_ops_file_type, polyfit_deg, NN_epochs, PA2_)
         combine_pareto_data = np.loadtxt(pathdir+filename)
         PA = combine_pareto(combine_pareto_data,PA1,PA2,separability_multiply_result[1],separability_multiply_result[2],PA,"*")
         return PA 
@@ -88,7 +136,7 @@ def run_SR(pathdir,filename,BF_try_time=60,BF_ops_file_type="14ops", polyfit_deg
         return PA
 
 # this runs snap on the output of aifeynman
-def run_mechanics_SR(pathdir,filename,BF_try_time,BF_ops_file_type, polyfit_deg=3, vars_name=[],test_percentage=20):    
+def run_aifeynman(pathdir,filename,BF_try_time,BF_ops_file_type, polyfit_deg=3, NN_epochs=4000, vars_name=[],test_percentage=20):    
     # If the variable names are passed, do the dimensional analysis first
     filename_orig = filename
     try:
@@ -114,7 +162,7 @@ def run_mechanics_SR(pathdir,filename,BF_try_time,BF_ops_file_type, polyfit_deg=
 
     PA = ParetoSet()
     # Run the code on the train data 
-    PA = run_SR(pathdir,filename,BF_try_time,BF_ops_file_type, polyfit_deg, PA=PA)
+    PA = run_AI_all(pathdir,filename+"_train",BF_try_time,BF_ops_file_type, polyfit_deg, NN_epochs, PA=PA)
     PA_list = PA.get_pareto_points()
 
     # Run bf snap on the resulted equations
